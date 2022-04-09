@@ -6,9 +6,9 @@ import (
 	"log"
 
 	"github.com/portto/solana-go-sdk/client"
+	"github.com/portto/solana-go-sdk/client/rpc"
 	"github.com/portto/solana-go-sdk/common"
 	"github.com/portto/solana-go-sdk/program/sysprog"
-	"github.com/portto/solana-go-sdk/rpc"
 	"github.com/portto/solana-go-sdk/types"
 )
 
@@ -18,31 +18,32 @@ type Wallet struct {
 }
 
 func CreateNewWallet(RPCEndpoint string) Wallet {
-	// create a new wallet using types.NewAccount()
 	newAccount := types.NewAccount()
-	data := []byte(newAccount.PrivateKey)
-
+	data := []byte(newAccount.PrivateKey) // convert the private key to byte array for storage
 	err := ioutil.WriteFile("data", data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	return Wallet{
 		newAccount,
 		client.NewClient(RPCEndpoint),
 	}
 }
 
-func ImportOldWallet(privateKey []byte, RPCEndpoint string) (Wallet, error) {
-	// import a wallet with bytes slice private key
+func ImportOldWallet(RPCEndpoint string) (Wallet, error) {
+	contents, _ := ioutil.ReadFile("data")
+	privateKey := []byte(string(contents))
+
 	wallet, err := types.AccountFromBytes(privateKey)
 	if err != nil {
 		return Wallet{}, err
 	}
+
 	return Wallet{
 		wallet,
 		client.NewClient(RPCEndpoint),
 	}, nil
+
 }
 
 func GetBalance() (uint64, error) {
@@ -63,7 +64,8 @@ func RequestAirdrop(amount uint64) (string, error) {
 	amount = amount * 1e9 // turning SOL into lamports
 	txhash, err := wallet.c.RequestAirdrop(
 		context.TODO(), // request context wallet.account.PublicKey.ToBase58(), // wallet address requesting airdrop
-		amount,         // amount of SOL in lamport
+		wallet.account.PublicKey.ToBase58(),
+		amount, // amount of SOL in lamport
 	)
 	if err != nil {
 		return "", err
@@ -72,20 +74,17 @@ func RequestAirdrop(amount uint64) (string, error) {
 }
 
 func Transfer(receiver string, amount uint64) (string, error) {
-	// fetch the most recent blockhash
 	wallet, _ := ImportOldWallet(rpc.DevnetRPCEndpoint)
 	response, err := wallet.c.GetRecentBlockhash(context.TODO())
 	if err != nil {
 		return "", err
 	}
-
-	// make a transfer message with the latest block hash
 	message := types.NewMessage(
 		wallet.account.PublicKey, // public key of the transaction signer
 		[]types.Instruction{
 			sysprog.Transfer(
-				wallet.account.PublicKey,             // public key of the transaction sender
-				common.PublicKeyFromString(receiver), // wallet address of the transaction receiver
+				wallet.account.PublicKey,             //public key of the transaction sender
+				common.PublicKeyFromString(receiver), // wallet address of receiver
 				amount,                               // transaction amount in lamport
 			),
 		},
@@ -98,7 +97,6 @@ func Transfer(receiver string, amount uint64) (string, error) {
 		return "", err
 	}
 
-	// send the transaction to the blockchain
 	txhash, err := wallet.c.SendTransaction2(context.TODO(), tx)
 	if err != nil {
 		return "", err
